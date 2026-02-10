@@ -23,39 +23,45 @@ def try_do_objective(
     cur_node = timeline[-1]
 
     def cost_fn(u: int, v: int, edge_type: int) -> float:
-        W_base = 1.0  # base weight per edge
+        # Hard feasibility constraints + uniform base edge cost.
+        W_base = 1.0
         t = current_time
 
-        # ================= TRUCK CONSTRAINT =================
+        # If no sensor data, just use base cost
+        if not sensor_data or t >= T:
+            return W_base
+
+        # -------------------------
+        # TRUCK: block if BOTH are too high
+        # (W_base * S_earth > 10) AND (W_base * S_rain > 30)
+        # -------------------------
         if vehicle_kind == "truck":
             if (
-                "earth_shock" in sensor_data and
-                "rainfall" in sensor_data and
-                t < len(sensor_data["earth_shock"]) and
-                t < len(sensor_data["rainfall"])
+                "earth_shock" in sensor_data and isinstance(sensor_data["earth_shock"], list)
+                and "rainfall" in sensor_data and isinstance(sensor_data["rainfall"], list)
+                and t < len(sensor_data["earth_shock"])
+                and t < len(sensor_data["rainfall"])
             ):
                 S_earth = sensor_data["earth_shock"][t]
-                S_rain  = sensor_data["rainfall"][t]
-
+                S_rain = sensor_data["rainfall"][t]
                 if (W_base * S_earth > 10) and (W_base * S_rain > 30):
                     return float("inf")  # HARD BLOCK
 
-        # ================= DRONE CONSTRAINT =================
+        # -------------------------
+        # DRONE: visibility IGNORED -> block only if wind too high
+        # (W_base * S_wind > 60)
+        # -------------------------
         if vehicle_kind == "drone":
             if (
-                "wind" in sensor_data and
-                "visibility" in sensor_data and
-                t < len(sensor_data["wind"]) and
-                t < len(sensor_data["visibility"])
+                "wind" in sensor_data and isinstance(sensor_data["wind"], list)
+                and t < len(sensor_data["wind"])
             ):
                 S_wind = sensor_data["wind"][t]
-                S_vis  = sensor_data["visibility"][t]
-
                 if (W_base * S_wind > 60):
                     return float("inf")  # HARD BLOCK
 
-        # ================= DEFAULT COST =================
         return W_base
+
 
 
     path = dijkstra_path(neighbors, cur_node, target_node, vehicle_kind, cost_fn)
