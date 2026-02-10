@@ -13,8 +13,9 @@ def parse_objectives(objectives_json: dict) -> List[Dict[str, Any]]:
 
     def get_int(d: dict, keys: List[str], default: int) -> int:
         for k in keys:
-            if k in d and isinstance(d[k], int):
-                return d[k]
+            if k in d and isinstance(d[k], (int, float)):
+                return int(d[k])
+
         return default
 
     out: List[Dict[str, Any]] = []
