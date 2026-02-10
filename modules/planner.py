@@ -31,10 +31,6 @@ def try_do_objective(
         if not sensor_data or t >= T:
             return W_base
 
-        # -------------------------
-        # TRUCK: block if BOTH are too high
-        # (W_base * S_earth > 10) AND (W_base * S_rain > 30)
-        # -------------------------
         if vehicle_kind == "truck":
             if (
                 "earth_shock" in sensor_data and isinstance(sensor_data["earth_shock"], list)
@@ -47,10 +43,7 @@ def try_do_objective(
                 if (W_base * S_earth > 10) and (W_base * S_rain > 30):
                     return float("inf")  # HARD BLOCK
 
-        # -------------------------
-        # DRONE: visibility IGNORED -> block only if wind too high
-        # (W_base * S_wind > 60)
-        # -------------------------
+
         if vehicle_kind == "drone":
             if (
                 "wind" in sensor_data and isinstance(sensor_data["wind"], list)
