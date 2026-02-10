@@ -1,0 +1,8 @@
+{
+  "start_node": 1,
+  "late_penalty_per_step": 1,
+  "objectives": [
+    { "id": 1, "node": 6, "release": 3, "deadline": 12, "points": 100 },
+    { "id": 2, "node": 5, "release": 8, "deadline": 18, "points": 80 }
+  ]
+}
