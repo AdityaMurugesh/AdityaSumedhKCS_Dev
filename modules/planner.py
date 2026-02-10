@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Any
 
 from modules.config import infer_T, infer_start_node, infer_vehicle_counts
 from modules.graph_utilization import dijkstra_path, build_neighbors
@@ -154,3 +154,99 @@ def plan(public_map: dict, sensor_data: dict, objectives_json: dict) -> Dict[str
         sol[f"drone{i+1}"] = finalize_to_T(drone_tls[i], T)
 
     return sol
+
+def _travel_cost_from_timeline(tl: List[int]) -> int:
+    # 1 cost per MOVE (node changes), 0 cost for WAIT (same node)
+    cost = 0
+    for i in range(1, len(tl)):
+        if tl[i] != tl[i - 1]:
+            cost += 1
+    return cost
+
+def total_travel_cost(solution: Dict[str, List[int]]) -> int:
+    return sum(_travel_cost_from_timeline(tl) for tl in solution.values())
+
+def score_solution(
+    objectives_json: dict,
+    solution: Dict[str, List[int]],
+) -> Tuple[float, Dict[Any, float], int]:
+    """
+    Implements scoring from your slide:
+      - Complete objective if some vehicle is at target at some t_arrival with tstart <= t_arrival <= tend
+      - Score = Pmax - late_penalty_per_step * (t_arrival - tstart), clamp to >= 0
+      - Missed => 0
+      - Total = sum(objective scores) - total travel cost
+    Returns (total_score, per_objective_scores, travel_cost)
+    """
+
+    # objectives may be either a list or wrapped in {"objectives": [...]}
+    objs = objectives_json.get("objectives", objectives_json)
+    if not isinstance(objs, list):
+        raise ValueError("objectives_json must be a list or have key 'objectives' as a list")
+
+    def get(o: dict, *keys, default=None):
+        for k in keys:
+            if k in o:
+                return o[k]
+        return default
+
+    # Precompute for quick lookup
+    vehicle_names = list(solution.keys())
+    if not vehicle_names:
+        return 0.0, {}, 0
+
+    T = len(next(iter(solution.values())))  # horizon from solution
+
+    per_obj: Dict[Any, float] = {}
+    total_obj_score = 0.0
+
+    for o in objs:
+        if not isinstance(o, dict):
+            continue
+
+        oid = get(o, "id", "objective_id", "name")
+        target = get(o, "node", "target", "target_node")
+        tstart = get(o, "release", "tstart", "start", "start_time", "Tstart")
+        tend = get(o, "deadline", "tend", "end", "end_time", "Tend")
+        pmax = float(get(o, "reward", "pmax", "Pmax", default=0))
+        late_pen = float(get(o, "late_penalty_per_step", "late_penalty", "penalty", default=0))
+
+        # Defensive checks
+        if target is None or tstart is None or tend is None:
+            per_obj[oid] = 0.0
+            continue
+
+        tstart = int(tstart)
+        tend = int(tend)
+
+        # Clamp window to solution horizon
+        lo = max(0, tstart)
+        hi = min(T - 1, tend)
+
+        t_arrival = None
+        if lo <= hi:
+            # earliest time within [tstart, tend] where ANY vehicle is at target
+            for t in range(lo, hi + 1):
+                for name in vehicle_names:
+                    if solution[name][t] == target:
+                        t_arrival = t
+                        break
+                if t_arrival is not None:
+                    break
+
+        if t_arrival is None:
+            s = 0.0  # missed
+        else:
+            lateness = t_arrival - tstart  # >= 0
+            s = pmax - late_pen * lateness
+            if s < 0:
+                s = 0.0
+
+        per_obj[oid] = s
+        total_obj_score += s
+
+    travel_cost = total_travel_cost(solution)
+    total_score = total_obj_score - travel_cost
+    return total_score, per_obj, travel_cost
+
+   

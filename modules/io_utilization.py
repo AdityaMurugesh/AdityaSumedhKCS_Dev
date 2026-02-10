@@ -15,7 +15,20 @@ def load_inputs() -> Tuple[dict, dict, dict]:
     return public_map, sensor_data, objectives
 
 
-def write_solution(solution: Dict[str, List[int]]) -> None:
+
+def write_solution(
+    solution: Dict[str, List[int]],
+    total_score: float,
+    travel_cost: int,
+    objective_scores: Dict[Any, float],
+) -> None:
+    out = {
+        "score": total_score,
+        "travel_cost": travel_cost,
+        "objective_scores": objective_scores,
+        "routes": solution,
+    }
 
     with open("solution.json", "w", encoding="utf-8") as f:
-        json.dump(solution, f, indent=2)
+        json.dump(out, f, indent=2)
+
