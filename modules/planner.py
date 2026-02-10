@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from modules.config import infer_T, infer_start_node, infer_vehicle_counts
-from modules.graph_utilization import bfs_path, build_neighbors
+from modules.graph_utilization import dijkstra_path, build_neighbors
 from modules.objective_utilization import parse_objectives, sort_objectives
 from modules.timeline_utilization import append_move_path, extend_wait, finalize_to_T
 
@@ -14,13 +14,62 @@ def try_do_objective(
     target_node: int,
     release: int,
     deadline: int,
-    T: int
+    T: int,
+    sensor_data: dict = None
 ) -> Optional[Tuple[List[int], int]]:
     if current_time >= T:
         return None
 
     cur_node = timeline[-1]
-    path = bfs_path(neighbors, cur_node, target_node, vehicle_kind)
+    def cost_fn(u: int, v: int, edge_type: int) -> float:
+        # Base cost is 1.0 per edge
+        cost = 1.0
+        
+        if sensor_data and current_time < T:
+            # Rainfall: slippery roads affect trucks significantly
+            if "rainfall" in sensor_data and isinstance(sensor_data["rainfall"], list):
+                rainfall_data = sensor_data["rainfall"]
+                if current_time < len(rainfall_data):
+                    rainfall = rainfall_data[current_time]
+                    if vehicle_kind == "truck":
+                        cost += rainfall * 0.1  # 10% cost increase per mm of rain
+                    elif vehicle_kind == "drone":
+                        cost += rainfall * 0.02  # Drones only slightly affected
+            
+            # Wind: strongly affects drones, minimally affects trucks
+            if "wind" in sensor_data and isinstance(sensor_data["wind"], list):
+                wind_data = sensor_data["wind"]
+                if current_time < len(wind_data):
+                    wind = wind_data[current_time]
+                    if vehicle_kind == "drone":
+                        cost += wind * 0.15  # 15% cost increase per wind speed unit
+                    elif vehicle_kind == "truck":
+                        cost += wind * 0.01  # Minimal impact on trucks
+            
+            # Visibility: reduces travel speed due to safety concerns
+            if "visibility" in sensor_data and isinstance(sensor_data["visibility"], list):
+                visibility_data = sensor_data["visibility"]
+                if current_time < len(visibility_data):
+                    visibility = visibility_data[current_time]
+                    # Lower visibility = slower travel (inversely proportional)
+                    if visibility > 0:
+                        visibility_penalty = 1.0 / visibility  # 1/km visibility = 1/km cost penalty
+                        cost += visibility_penalty * 0.5  # Scale to reasonable magnitude
+            
+            # Earth shock: makes ground travel dangerous
+            if "earth_shock" in sensor_data and isinstance(sensor_data["earth_shock"], list):
+                earth_shock_data = sensor_data["earth_shock"]
+                if current_time < len(earth_shock_data):
+                    earth_shock = earth_shock_data[current_time]
+                    if vehicle_kind == "truck":
+                        cost += earth_shock * 0.5  # 50% cost increase per earth_shock unit
+                    elif vehicle_kind == "drone":
+                        cost += earth_shock * 0.05  # Drones nearly unaffected
+        
+        return cost
+
+    path = dijkstra_path(neighbors, cur_node, target_node, vehicle_kind, cost_fn)
+
     if path is None:
         return None
 
@@ -83,7 +132,7 @@ def plan(public_map: dict, sensor_data: dict, objectives_json: dict) -> Dict[str
         best = None  # (finish_time, kind, idx, new_tl, new_time)
 
         for i in range(num_drones):
-            attempt = try_do_objective(neighbors, "drone", drone_tls[i], drone_time[i], target, release, deadline, T)
+            attempt = try_do_objective(neighbors, "drone", drone_tls[i], drone_time[i], target, release, deadline, T, sensor_data)
             if attempt is None:
                 continue
             new_tl, new_t = attempt
@@ -92,7 +141,7 @@ def plan(public_map: dict, sensor_data: dict, objectives_json: dict) -> Dict[str
 
         if best is None:
             for i in range(num_trucks):
-                attempt = try_do_objective(neighbors, "truck", truck_tls[i], truck_time[i], target, release, deadline, T)
+                attempt = try_do_objective(neighbors, "truck", truck_tls[i], truck_time[i], target, release, deadline, T, sensor_data)
                 if attempt is None:
                     continue
                 new_tl, new_t = attempt
